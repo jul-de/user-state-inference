@@ -52,6 +52,29 @@ def summary(name, post, truth):
             'ece_confused': c['ece'], 'calibration_confused': c['bins']}
 
 
+def user_bootstrap(posts, truth, n=1000, seed=0):
+    """Recovery metrics with 95% CIs from resampling held-out *users* (each user's steps
+    stay together, since steps from one person are correlated). `posts` is a list of
+    models' posteriors; the same resamples are used for every model, so the CI for a
+    difference between two models is paired."""
+    rng = np.random.default_rng(seed)
+    preds = [[g.argmax(1) for g in post] for post in posts]
+
+    def metrics(idx):
+        y = np.concatenate([truth[i] for i in idx])
+        out = []
+        for pr in preds:
+            p = np.concatenate([pr[i] for i in idx])
+            rec = [((p == k) & (y == k)).sum() / max(1, (y == k).sum()) for k in range(4)]
+            prec_c = ((p == CONF) & (y == CONF)).sum() / max(1, (p == CONF).sum())
+            out.append((np.mean(rec), rec[CONF], prec_c))
+        return np.array(out)
+
+    reps = np.array([metrics(rng.integers(0, len(truth), len(truth))) for _ in range(n)])  # (n, models, 3)
+    lo, hi = np.percentile(reps, 2.5, axis=0), np.percentile(reps, 97.5, axis=0)
+    return reps, lo, hi
+
+
 def ratio_ci(numA, denA, numB, denB, n=1000, seed=0):
     """95% CI for sum(numB)/sum(denB) - sum(numA)/sum(denA), resampling users (keeps each
     user's steps together, so the interval reflects users, not steps)."""
@@ -89,6 +112,19 @@ def main():
         summary('  ... actions only', anchored(feats, labelled, train, use_dwell=False).posteriors(at, xt), truth),
         summary('  ... no sequence context', anchored(feats, labelled, train, sequential=False).posteriors(at, xt), truth),
     ]
+    posts = [rule_baseline(test), relabel(unsup_post, name_states(unsup.params)), main_post,
+             anchored(feats, labelled, train, use_action=False).posteriors(at, xt),
+             anchored(feats, labelled, train, use_dwell=False).posteriors(at, xt),
+             anchored(feats, labelled, train, sequential=False).posteriors(at, xt)]
+    reps, lo, hi = user_bootstrap(posts, truth)
+    for i, m in enumerate(models):
+        m['ci95'] = {'balanced_accuracy': [lo[i, 0], hi[i, 0]], 'confused_recall': [lo[i, 1], hi[i, 1]],
+                     'confused_precision': [lo[i, 2], hi[i, 2]]}
+        m['ci95'] = {k: [float(v[0]), float(v[1])] for k, v in m['ci95'].items()}
+    # Paired differences: anchored HMM minus the rule-based heuristic, same user resamples.
+    d = reps[:, 2, :] - reps[:, 0, :]
+    res['anchored_vs_rule'] = {k: {'diff': float(np.mean(d[:, j])), 'ci95': [float(np.percentile(d[:, j], 2.5)), float(np.percentile(d[:, j], 97.5))]}
+                               for j, k in enumerate(['balanced_accuracy', 'confused_recall', 'confused_precision'])}
     # Unsupervised ceiling: even the best possible labelling of its states.
     models[1]['balanced_accuracy_best_labelling'] = recovery(relabel(unsup_post, best_permutation(unsup_post, truth)), truth)['balanced_accuracy']
     res['models'] = models
@@ -225,6 +261,10 @@ def print_report(res):
     print('\nRecovery on held-out users (balanced accuracy | confused recall / precision | ECE for P(confused))')
     for m in res['models']:
         print(f"  {m['model']:42s} {m['balanced_accuracy']:.3f} | {m['recall'][CONF]:.2f} / {m['precision'][CONF]:.2f} | {m['ece_confused']:.3f}")
+    for m in res['models']:
+        c = m['ci95']['balanced_accuracy']
+        print(f"    {m['model'].strip():40s} balanced acc 95% CI [{c[0]:.3f}, {c[1]:.3f}]")
+    print('  anchored minus rule (paired):', {k: (round(v['diff'], 3), [round(x, 3) for x in v['ci95']]) for k, v in res['anchored_vs_rule'].items()})
     print(f"  (no-label HMM with the best possible labelling: {res['models'][1]['balanced_accuracy_best_labelling']:.3f})")
     print('\nLabelled users needed:')
     for c in res['label_curve']:

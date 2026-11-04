@@ -145,14 +145,17 @@ class InteractionHMM:
         best = None
         for r in range(1 if init is not None else self.n_restarts):
             p = init if init is not None else self._init_params(rng, a, xp, mask)
-            hist, prev = [], -np.inf
+            # hist[i] is the log-likelihood of the parameters after i M-steps, so hist[-1]
+            # always belongs to the parameters that are kept.
+            alpha, beta, c, E, gamma, ll = self._forward_backward(p, a, xp, mask)
+            hist = [ll]
             for _ in range(self.n_iter):
-                alpha, beta, c, E, gamma, ll = self._forward_backward(p, a, xp, mask)
-                hist.append(ll)
-                if ll - prev < self.tol * abs(ll):
-                    break
-                prev = ll
                 p = self._m_step(p, a, xp, mask, alpha, beta, c, E, gamma)
+                alpha, beta, c, E, gamma, ll = self._forward_backward(p, a, xp, mask)
+                converged = ll - hist[-1] < self.tol * abs(ll)
+                hist.append(ll)
+                if converged:
+                    break
             if best is None or hist[-1] > best[1]:
                 best = (p, hist[-1], hist)
         self.params, _, self.loglik_history = best

@@ -57,6 +57,8 @@ def test_em_increases_likelihood_and_recovers_parameters():
     m = InteractionHMM(n_states=2, n_restarts=3, seed=0).fit(acts, xs)
     h = np.array(m.loglik_history)
     assert np.all(np.diff(h) > -1e-6 * abs(h[:-1]))
+    # the last recorded likelihood belongs to the parameters the model keeps
+    assert np.isclose(h[-1], m.loglik(acts, xs), rtol=1e-12)
     order = np.argsort(m.params.mu)
     assert np.allclose(m.params.mu[order], TRUE.mu, atol=0.1)
     assert np.allclose(m.params.A[np.ix_(order, order)], TRUE.A, atol=0.05)

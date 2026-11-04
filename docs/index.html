@@ -121,6 +121,7 @@ code { font-size: 13px; background: var(--bg); padding: 1px 5px; border-radius: 
     <p class="eyebrow">Behavioural modelling · latent-state inference</p>
     <h1>Reading the Trace</h1>
     <p>Analytics logs what people do: clicks, pauses, going back. Product teams want to know what people <i>are</i>: confused, deliberating, engaged, gone. This project simulates a population of users moving through a checkout flow, then tests how much of their hidden state can be recovered from the trace alone, and where behaviour stops being informative.</p>
+    <p>It's a simulation-based methods project, not a validated detector of real users' confusion. Every number on this page is recovery inside the simulated world.</p>
     <p class="links">Code, tests and method: <a href="https://github.com/jul-de/user-state-inference">jul-de/user-state-inference</a> · by Julia Donovan</p>
   </header>
 
@@ -212,7 +213,8 @@ code { font-size: 13px; background: var(--bg); padding: 1px 5px; border-radius: 
     <h3>What this can't show</h3>
     <ul>
       <li><b>That real users behave like this.</b> The generator is my set of assumptions about how states produce behaviour. The results show what's recoverable <i>if</i> behaviour works this way. They're a method check and a design tool, not evidence about people.</li>
-      <li><b>Real labels.</b> Anchoring assumes you can code states in a small study. Real coding (think-aloud, in-the-moment probes) is noisy and changes behaviour, and that noise isn't modelled.</li>
+      <li><b>Real labels.</b> Anchoring assumes you can code states in a small study, and here the labels are the simulator's exact states. Real coding (think-aloud, in-the-moment probes) is sparse, noisy and can change the behaviour it measures. None of that is modelled, so the anchored results are a best case.</li>
+      <li><b>General calibration.</b> Calibration is measured on held-out users from the same simulated world. It can't be assumed for a different population or interface, as the redesign test shows.</li>
       <li><b>Live inference.</b> Beliefs here use the whole session. Real-time detection would only have the past, and would be less accurate.</li>
     </ul>
     <p>The obvious next step is to run the same pipeline on real sessions with sparse in-the-moment probes ("Are you finding what you need?"), and compare the model's posterior with the answers.</p>
@@ -272,7 +274,7 @@ const M = R.models, main = M[2], unsup = M[1], rule = M[0];
 const ab = R.ab.diff;
 document.getElementById('tiles').replaceChildren(
   h('div', { className: 'tile' }, h('div', { className: 'label', textContent: `Anchored on ${R.meta.n_labelled} labelled users` }),
-    h('div', { className: 'value', textContent: f2(main.balanced_accuracy) }), h('div', { className: 'note', textContent: `balanced accuracy over 4 states, calibrated (ECE ${main.ece_confused.toFixed(3)})` })),
+    h('div', { className: 'value', textContent: f2(main.balanced_accuracy) }), h('div', { className: 'note', textContent: `balanced accuracy over 4 states (95% CI ${f2(main.ci95.balanced_accuracy[0])}–${f2(main.ci95.balanced_accuracy[1])}), with idealised labels` })),
   h('div', { className: 'tile' }, h('div', { className: 'label', textContent: 'With no labels at all' }),
     h('div', { className: 'value', textContent: f2(unsup.balanced_accuracy) }), h('div', { className: 'note', textContent: 'finds user types, not states' })),
   h('div', { className: 'tile' }, h('div', { className: 'label', textContent: 'Redesign: rise in confusion on Options page' }),
@@ -392,7 +394,7 @@ function renderExplorer() {
 
 // ---------- model comparison ----------
 document.getElementById('rec-sub').textContent =
-  `${R.meta.n_test.toLocaleString()} held-out simulated users (${R.meta.test_steps.toLocaleString()} steps). Truly confused on ${pct(R.meta.true_state_share[2])} of steps, deliberating on ${pct(R.meta.true_state_share[1])}, interrupted on ${pct(R.meta.true_state_share[3])}.`;
+  `${R.meta.n_test.toLocaleString()} held-out simulated users (${R.meta.test_steps.toLocaleString()} steps). Confidence intervals resample whole users, since one person's steps are correlated. Truly confused on ${pct(R.meta.true_state_share[2])} of steps, deliberating on ${pct(R.meta.true_state_share[1])}, interrupted on ${pct(R.meta.true_state_share[3])}.`;
 function renderModels() {
   const c = document.getElementById('models');
   const labels = M.map(m => m.model.trim().replace('... ', '… '));
@@ -438,16 +440,16 @@ function renderCM() {
 }
 function renderModelsTable() {
   const t = document.getElementById('models-table');
-  t.replaceChildren(h('thead', {}, h('tr', {}, ...['Model', 'Balanced accuracy', 'Confused: recall', 'Confused: precision', 'Calibration error, P(confused)'].map(s => h('th', { scope: 'col', textContent: s })))));
+  t.replaceChildren(h('thead', {}, h('tr', {}, ...['Model', 'Balanced accuracy [95% CI]', 'Confused: recall', 'Confused: precision', 'Calibration error, P(confused)'].map(s => h('th', { scope: 'col', textContent: s })))));
   const tb = h('tbody');
   for (const m of M) tb.append(h('tr', {}, h('th', { scope: 'row', style: 'font-weight:500', textContent: m.model }),
-    h('td', { textContent: f2(m.balanced_accuracy) }), h('td', { textContent: pct(m.recall[2]) }), h('td', { textContent: pct(m.precision[2]) }), h('td', { textContent: m.ece_confused.toFixed(3) })));
+    h('td', { textContent: `${f2(m.balanced_accuracy)} [${f2(m.ci95.balanced_accuracy[0])}–${f2(m.ci95.balanced_accuracy[1])}]` }), h('td', { textContent: pct(m.recall[2]) }), h('td', { textContent: pct(m.precision[2]) }), h('td', { textContent: m.ece_confused.toFixed(3) })));
   t.append(tb);
   const cm = main.confusion_matrix;
   document.getElementById('rec-body').replaceChildren(
     h('h3', { textContent: 'What this shows' }),
     h('ul', {},
-      h('li', {}, h('b', { textContent: 'The heuristic flags confusion often, but half its flags are wrong. ' }), `It catches ${pct(rule.recall[2])} of confused steps with ${pct(rule.precision[2])} precision, and its 0/1 output can't say how sure it is. Its overall accuracy is close to the model's, and it's an optimistic baseline: its thresholds were set knowing how the simulation works. The anchored model catches ${pct(main.recall[2])} with ${pct(main.precision[2])} precision, and its probabilities are calibrated: when it says 70% confused, the user is confused about 70% of the time.`),
+      h('li', {}, h('b', { textContent: 'The heuristic flags confusion often, but half its flags are wrong. ' }), `It catches ${pct(rule.recall[2])} of confused steps with ${pct(rule.precision[2])} precision, and its 0/1 output can't say how sure it is. Its overall accuracy is close to the model's, and it's an optimistic baseline: its thresholds were set knowing how the simulation works. The anchored model catches ${pct(main.recall[2])} with ${pct(main.precision[2])} precision. Compared on the same resampled users, its balanced accuracy is higher by ${f2(R.anchored_vs_rule.balanced_accuracy.diff)} (95% CI ${f2(R.anchored_vs_rule.balanced_accuracy.ci95[0])}–${f2(R.anchored_vs_rule.balanced_accuracy.ci95[1])}). On this held-out simulation its probabilities are also well calibrated: when it says 70% confused, the user is confused about 70% of the time. That's measured in this simulated world, not guaranteed for real data.`),
       h('li', {}, h('b', { textContent: 'Both signals are needed. ' }), `Dwell time alone drops balanced accuracy to ${f2(M[3].balanced_accuracy)}, and actions alone to ${f2(M[4].balanced_accuracy)}. A pause can't tell confusion from deliberation, and a click can't tell a short check from a long absence.`),
       h('li', {}, h('b', { textContent: 'Sequence context helps a little. ' }), `Classifying each step on its own gives ${f2(M[5].balanced_accuracy)} vs ${f2(main.balanced_accuracy)}. Confusion tends to persist, so neighbouring steps carry evidence.`),
       h('li', {}, h('b', { textContent: 'The hard boundary is deliberating vs confused. ' }), `${pct(cm[1][2])} of deliberating steps are read as confused, and ${pct(cm[2][1])} of confused steps as deliberating.`),
@@ -486,8 +488,9 @@ function renderCurve() {
   });
   const c10 = C.find(p => p.n_labelled === 10), c200 = C.find(p => p.n_labelled === 200);
   document.getElementById('lab-body').replaceChildren(
-    h('p', {}, h('b', { textContent: 'A handful of labels does most of the work. ' }), `With no labels, five runs of the same model range from ${f2(C[0].ba_min)} to ${f2(C[0].ba_max)}, and without ground truth there's no way to tell which run is right. Ten labelled users give ${f2(c10.balanced_accuracy)}, and replicate studies barely disagree.`),
+    h('p', {}, h('b', { textContent: 'A handful of labels does most of the work. ' }), `With no labels, five runs of the same model range from ${f2(C[0].ba_min)} to ${f2(C[0].ba_max)}, and without ground truth there's no way to tell which run is right. Ten labelled users give ${f2(c10.balanced_accuracy)}, and replicate studies barely disagree. The shaded band is the range of five replicates, not a confidence interval.`),
     h('p', {}, h('b', { textContent: 'More labels don\'t raise the ceiling. ' }), `200 labelled users give ${f2(c200.balanced_accuracy)}. The limit isn't data, it's that some states produce overlapping behaviour. The way to go beyond it is a new signal (where the pointer moves, what's scrolled into view, a probe question), not more of the same.`),
+    h('p', {}, h('b', { textContent: 'These labels are idealised. ' }), 'They are the simulator\'s exact states. Real think-aloud or experience-sampling codes are sparse, noisy and can change behaviour, so treat these numbers as a best case.'),
   );
 }
 
@@ -585,9 +588,10 @@ function renderAB() {
   document.getElementById('ab-body').replaceChildren(
     h('ul', {},
       h('li', {}, h('b', { textContent: 'The model finds the problem page. ' }), `Inferred confusion rises most on Options, by ${(D.inferred_conf_options.diff * 100).toFixed(0)} points (95% CI ${(D.inferred_conf_options.ci95[0] * 100).toFixed(0)}–${(D.inferred_conf_options.ci95[1] * 100).toFixed(0)}, resampling users), with smaller rises on Product and Cart, where confused users go back to or land next. The model tracks those knock-on effects too. Abandonment rises by ${(D.abandonment.diff * 100).toFixed(0)} points.`),
-      h('li', {}, h('b', { textContent: 'But it underestimates the size. ' }), `The true rise is ${(D.true_conf_options.diff * 100).toFixed(0)} points. Of the truly confused steps on the redesigned page, the model reads ${pct(R.ab.B_options_confused_read_as[1])} as deliberating and ${pct(R.ab.B_options_confused_read_as[0])} as progressing. Trained on the old design, it has never seen this much confusion on one page. Models of behaviour inherit the interface they were trained on, so a redesign can bias the measurement of the redesign itself.`),
+      h('li', {}, h('b', { textContent: 'But it underestimates the size. ' }), `The true rise is ${(D.true_conf_options.diff * 100).toFixed(0)} points. Of the truly confused steps on the redesigned page, the model reads ${pct(R.ab.B_options_confused_read_as[1])} as deliberating and ${pct(R.ab.B_options_confused_read_as[0])} as progressing. Trained on the old design, it has never seen this much confusion on one page. Models of behaviour inherit the interface they were trained on, so a redesign can bias the measurement of the redesign itself. Part of this is the dwell feature, which is normalised by each page's average dwell under the old design.`),
       h('li', {}, h('b', { textContent: 'The cost falls unevenly. ' }), `Novices' abandonment goes from ${pct(nov[0])} to ${pct(nov[1])}, the largest rise of any persona. An average across all users would hide who the redesign hurts.`),
-    ));
+    ),
+    h('p', { className: 'muted', textContent: 'This simulates a measurement problem. The size of the effects depends on the chosen redesign and synthetic users; it is not an estimate of what a real redesign would do.' }));
 }
 
 // ---------- personas ----------
