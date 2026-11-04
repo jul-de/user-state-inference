@@ -64,6 +64,6 @@ python scripts/run_all.py   # about a minute; prints a report and rewrites docs/
 python -m http.server -d docs   # then open http://localhost:8000
 ```
 
-## A note on AI assistance
+## Tools
 
-This project was built with AI assistance. The project idea came from a conversation with ChatGPT. Claude (Anthropic) wrote the simulator, the model, the analyses, the tests and the interactive page, working from my direction on scope and framing. I reviewed the results and the claims made about them.
+Built in Python and NumPy, with Claude Code as a coding assistant.
