@@ -1,0 +1,614 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reading the Trace</title>
+<meta name="description" content="Inferring confusion, deliberation and engagement from synthetic clickstreams, and where behaviour stops telling you what someone is thinking.">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f6f5f2; --surface: #fcfcfb; --border: #e3e1db; --grid: #ebe9e4;
+  --text: #0b0b0b; --text-2: #52514e; --text-3: #7a7974;
+  --accent: #2a78d6;
+  --s-prog: #2a78d6; --s-conf: #eb6834; --s-delib: #1baf7a; --s-intr: #b9b7b0;
+  --seq-1: #b7d3f6; --seq-2: #6da7ec; --seq-3: #2a78d6; --seq-4: #184f95;
+  --bar: #a9a7a0; --ink-line: #52514e;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #121211; --surface: #1a1a19; --border: #2e2e2c; --grid: #282826;
+    --text: #f0efec; --text-2: #c3c2b7; --text-3: #8f8e86;
+    --accent: #3987e5;
+    --s-prog: #3987e5; --s-conf: #d95926; --s-delib: #199e70; --s-intr: #5c5b57;
+    --seq-1: #184f95; --seq-2: #256abf; --seq-3: #3987e5; --seq-4: #86b6ef;
+    --bar: #6b6a65; --ink-line: #c3c2b7;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #121211; --surface: #1a1a19; --border: #2e2e2c; --grid: #282826;
+  --text: #f0efec; --text-2: #c3c2b7; --text-3: #8f8e86;
+  --accent: #3987e5;
+  --s-prog: #3987e5; --s-conf: #d95926; --s-delib: #199e70; --s-intr: #5c5b57;
+  --seq-1: #184f95; --seq-2: #256abf; --seq-3: #3987e5; --seq-4: #86b6ef;
+  --bar: #6b6a65; --ink-line: #c3c2b7;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+a { color: var(--accent); }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 40px 16px 72px; }
+header { max-width: 760px; margin-bottom: 28px; }
+.eyebrow { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); margin: 0 0 8px; }
+h1 { font-size: 32px; line-height: 1.15; margin: 0 0 12px; letter-spacing: -0.015em; }
+header p { color: var(--text-2); margin: 0 0 10px; font-size: 16px; }
+.links { font-size: 14px; color: var(--text-3); }
+
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0 0 28px; }
+@media (max-width: 760px) { .tiles { grid-template-columns: minmax(0, 1fr); } }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+.tile .label { font-size: 13px; color: var(--text-2); }
+.tile .value { font-size: 28px; font-weight: 600; letter-spacing: -0.01em; margin: 2px 0; font-variant-numeric: tabular-nums; }
+.tile .note { font-size: 13px; color: var(--text-3); }
+
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 22px; margin-bottom: 20px; min-width: 0; }
+.card h2 { font-size: 19px; margin: 0 0 4px; letter-spacing: -0.005em; }
+.card .sub { color: var(--text-2); margin: 0 0 16px; font-size: 14px; max-width: 760px; }
+.card p { max-width: 760px; }
+.card .body p, .card .body li { color: var(--text-2); }
+h3 { font-size: 15px; margin: 22px 0 6px; }
+
+.controls { display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: flex-end; margin-bottom: 16px; }
+.ctl-label { font-size: 12px; color: var(--text-3); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .04em; }
+.seg { display: flex; flex-wrap: wrap; gap: 6px; }
+button.pill, .btn {
+  font: inherit; font-size: 13px; border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  border-radius: 999px; padding: 5px 12px; cursor: pointer;
+}
+button.pill[aria-pressed="true"] { background: var(--text); color: var(--surface); border-color: var(--text); }
+.btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+button:focus-visible, svg:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.flow { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 14px; align-items: center; }
+.flow .pg { font-size: 12px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); color: var(--text-2); position: relative; }
+.flow .pg.here { border-color: var(--text); color: var(--text); font-weight: 600; }
+.flow .pg.changed::after { content: "redesigned"; position: absolute; top: -9px; right: -6px; font-size: 9px; background: var(--s-conf); color: #fff; border-radius: 4px; padding: 0 4px; font-weight: 600; }
+.flow .arrow { color: var(--text-3); font-size: 12px; }
+.who { font-size: 13px; color: var(--text-2); margin-bottom: 10px; display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.who b { color: var(--text); font-weight: 600; }
+
+.key { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--text-2); margin: 0 0 10px; }
+.key span { display: inline-flex; align-items: center; gap: 6px; }
+.key i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.key i.line { height: 2px; width: 16px; border-radius: 1px; }
+.key i.dash { height: 0; width: 16px; border-top: 2px dashed var(--text-2); border-radius: 0; background: none !important; }
+
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart text { fill: var(--text-3); font-size: 11px; font-family: inherit; }
+.chart .lbl { fill: var(--text-2); font-size: 12px; }
+.chart .val { fill: var(--text); font-size: 12px; font-weight: 600; }
+.tip { position: absolute; pointer-events: none; z-index: 3; background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / .12); padding: 8px 10px; font-size: 12px; min-width: 160px; white-space: nowrap; opacity: 0; transition: opacity 80ms; }
+.tip.on { opacity: 1; }
+.tip .t { color: var(--text-3); margin-bottom: 4px; }
+.tip .row { display: flex; align-items: center; gap: 8px; }
+.tip .row b { min-width: 40px; color: var(--text); }
+.tip .row span { color: var(--text-2); }
+.tip .row i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+@media (max-width: 760px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
+.grid2 > * { min-width: 0; }
+
+table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 8px 8px; border-bottom: 1px solid var(--grid); }
+th:first-child, td:first-child { text-align: left; }
+thead th { font-weight: 600; color: var(--text-2); font-size: 13px; vertical-align: bottom; }
+.scroll { overflow-x: auto; }
+.callout { border-left: 3px solid var(--s-conf); padding: 4px 0 4px 14px; margin: 14px 0; max-width: 760px; }
+.callout p { margin: 0 0 6px; color: var(--text-2); }
+.muted { color: var(--text-3); font-size: 13px; }
+code { font-size: 13px; background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+.loading { color: var(--text-3); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Behavioural modelling · latent-state inference</p>
+    <h1>Reading the Trace</h1>
+    <p>Analytics logs what people do: clicks, pauses, going back. Product teams want to know what people <i>are</i>: confused, deliberating, engaged, gone. This project simulates a population of users moving through a checkout flow, then tests how much of their hidden state can be recovered from the trace alone, and where behaviour stops being informative.</p>
+    <p class="links">Code, tests and method: <a href="https://github.com/jul-de/user-state-inference">jul-de/user-state-inference</a> · by Julia Donovan</p>
+  </header>
+
+  <div class="tiles" id="tiles"><div class="tile loading">Loading results…</div></div>
+
+  <section class="card" aria-labelledby="h-exp">
+    <h2 id="h-exp">One user, step by step</h2>
+    <p class="sub">Each column is one logged action and the pause before it. Under the log are the user's true hidden state (known only because they're simulated), what the model infers from the log, and what a simple rule-based heuristic says.</p>
+    <div class="controls">
+      <div><div class="ctl-label" id="l-design">Interface</div><div class="seg" role="group" aria-labelledby="l-design" id="design-seg"></div></div>
+      <div><div class="ctl-label" id="l-persona">Persona</div><div class="seg" role="group" aria-labelledby="l-persona" id="persona-seg"></div></div>
+      <div class="seg"><button type="button" class="btn" id="next">Another user</button><button type="button" class="btn primary" id="play">▶ Play</button></div>
+    </div>
+    <div class="flow" id="flow" aria-label="Checkout flow"></div>
+    <div class="who" id="who"></div>
+    <div class="key" id="state-key"></div>
+    <div class="chart" id="trace"></div>
+    <p class="muted">Model belief uses the whole session (offline analysis), so a step can be informed by what the user did next. Dwell is on a log scale.</p>
+  </section>
+
+  <section class="card" aria-labelledby="h-rec">
+    <h2 id="h-rec">Can behaviour reveal hidden state?</h2>
+    <p class="sub" id="rec-sub"></p>
+    <div class="grid2">
+      <div>
+        <h3 style="margin-top:0">Recovery by model</h3>
+        <p class="muted" style="margin:0 0 8px">Balanced accuracy over the four states (chance = 0.25)</p>
+        <div class="chart" id="models"></div>
+      </div>
+      <div>
+        <h3 style="margin-top:0">What gets mistaken for what</h3>
+        <p class="muted" style="margin:0 0 8px">Anchored model: share of each true state assigned to each inferred state</p>
+        <div class="chart" id="cm"></div>
+      </div>
+    </div>
+    <div class="scroll" style="margin-top:16px"><table id="models-table"></table></div>
+    <div class="body" id="rec-body"></div>
+  </section>
+
+  <section class="card" aria-labelledby="h-lab">
+    <h2 id="h-lab">How many labelled users does it take?</h2>
+    <p class="sub">The anchored model starts from a small "labelled study" (sessions whose states have been coded, as a think-aloud or experience-sampling study would provide), then learns from unlabelled traffic. Five replicate studies at each size.</p>
+    <div class="grid2">
+      <div><div class="chart" id="curve"></div></div>
+      <div class="body" id="lab-body"></div>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="h-types">
+    <h2 id="h-types">Without labels, user types pass for states</h2>
+    <p class="sub">Steps where the user was truly <b>progressing</b>, split by which state the unlabelled model put them in, for each persona. Its states run from fastest to slowest dwell.</p>
+    <div class="key" id="types-key"></div>
+    <div class="chart" id="types"></div>
+    <div class="body" id="types-body"></div>
+  </section>
+
+  <section class="card" aria-labelledby="h-same">
+    <h2 id="h-same">Same behaviour, different cause</h2>
+    <div class="body" id="same-body"></div>
+  </section>
+
+  <section class="card" aria-labelledby="h-ab">
+    <h2 id="h-ab">Testing a redesign on a synthetic population</h2>
+    <p class="sub" id="ab-sub"></p>
+    <div class="key">
+      <span><i class="line" style="background:var(--ink-line)"></i>Design A (current)</span>
+      <span><i class="line" style="background:var(--accent)"></i>Design B (redesign)</span>
+      <span><i class="line" style="background:var(--text-2)"></i>True confusion</span>
+      <span><i class="dash"></i>Inferred by the model</span>
+    </div>
+    <div class="chart" id="ab"></div>
+    <div class="scroll" style="margin-top:16px"><table id="ab-table"></table></div>
+    <div class="body" id="ab-body"></div>
+  </section>
+
+  <section class="card" aria-labelledby="h-pers">
+    <h2 id="h-pers">Where it fails across user types</h2>
+    <p class="sub">Recovery for each persona, on held-out users.</p>
+    <div class="scroll"><table id="pers-table"></table></div>
+    <div class="body" id="pers-body"></div>
+  </section>
+
+  <section class="card body" aria-labelledby="h-how">
+    <h2 id="h-how">How it works, and what it can't show</h2>
+    <h3>The simulated users</h3>
+    <p>Each user has traits (tech fluency, carefulness, patience, distractibility) drawn around one of four personas. At every step they're in a hidden state (progressing, deliberating, confused or interrupted) that depends on the previous state, how clear the current page is to someone with their fluency, and their traits. The state then produces the logged action (forward, back, repeated click, off-path link) and the pause before it. Confused users can abandon, sooner if they're impatient.</p>
+    <h3>The model</h3>
+    <p>A four-state hidden Markov model, written from scratch in NumPy. Each step emits an action (categorical) and a dwell time normalised by page (Gaussian on log seconds). It's anchored on a small labelled sample and then fitted to unlabelled traffic by expectation-maximisation. It's deliberately simpler than the generator: its transitions don't know about pages or traits, so it's tested while misspecified, as a real model would be.</p>
+    <h3>What this can't show</h3>
+    <ul>
+      <li><b>That real users behave like this.</b> The generator is my set of assumptions about how states produce behaviour. The results show what's recoverable <i>if</i> behaviour works this way. They're a method check and a design tool, not evidence about people.</li>
+      <li><b>Real labels.</b> Anchoring assumes you can code states in a small study. Real coding (think-aloud, in-the-moment probes) is noisy and changes behaviour, and that noise isn't modelled.</li>
+      <li><b>Live inference.</b> Beliefs here use the whole session. Real-time detection would only have the past, and would be less accurate.</li>
+    </ul>
+    <p>The obvious next step is to run the same pipeline on real sessions with sparse in-the-moment probes ("Are you finding what you need?"), and compare the model's posterior with the answers.</p>
+  </section>
+</div>
+
+<script type="module">
+const NS = 'http://www.w3.org/2000/svg';
+const STATE_NAMES = ['Progressing', 'Deliberating', 'Confused', 'Interrupted'];
+const STATE_VARS = ['var(--s-prog)', 'var(--s-delib)', 'var(--s-conf)', 'var(--s-intr)'];
+const STACK_ORDER = [0, 2, 1, 3]; // progressing, confused, deliberating, interrupted (validated adjacency)
+const ACTION_GLYPH = ['→', '←', '↻', '↗'];
+const ACTION_NAME = ['forward', 'back', 'repeated click', 'off-path link'];
+const PERSONA_LABEL = { expert: 'Expert', careful: 'Careful', novice: 'Novice', distractible: 'Distractible' };
+
+const [R, BANK] = await Promise.all([fetch('data/results.json').then(r => r.json()), fetch('data/bank.json').then(r => r.json())]);
+const PAGES = R.meta.pages;
+
+// ---------- helpers ----------
+function el(tag, attrs = {}, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (parent) parent.append(e);
+  return e;
+}
+function txt(parent, x, y, s, attrs = {}) { const t = el('text', { x, y, ...attrs }, parent); t.textContent = s; return t; }
+function h(tag, props = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) { if (k === 'style') e.style.cssText = v; else if (k in e) e[k] = v; else e.setAttribute(k, v); }
+  for (const k of kids) e.append(k);
+  return e;
+}
+const pct = (x, d = 0) => `${(x * 100).toFixed(d)}%`;
+const f2 = x => x.toFixed(2);
+function frame(container, H, m) {
+  const W = Math.max(280, container.clientWidth);
+  container.replaceChildren();
+  const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H }, container);
+  const tip = h('div', { className: 'tip' }); container.append(tip);
+  return { svg, tip, W, H, x0: m.l, x1: W - m.r, y0: H - m.b, y1: m.t };
+}
+function showTip(f, x, y, title, rows) {
+  f.tip.replaceChildren(h('div', { className: 't', textContent: title }));
+  for (const [color, value, label] of rows) {
+    const i = h('i'); if (color) i.style.background = color; else i.style.visibility = 'hidden';
+    f.tip.append(h('div', { className: 'row' }, i, h('b', { textContent: value }), h('span', { textContent: label })));
+  }
+  f.tip.classList.add('on');
+  const scale = f.svg.clientWidth / f.W, tw = f.tip.offsetWidth, cw = f.svg.clientWidth;
+  let left = x * scale + 14; if (left + tw > cw) left = x * scale - tw - 14;
+  f.tip.style.left = `${Math.max(0, left)}px`; f.tip.style.top = `${Math.max(0, y * scale - 10)}px`;
+}
+const hideTip = f => f.tip.classList.remove('on');
+
+// ---------- tiles ----------
+const M = R.models, main = M[2], unsup = M[1], rule = M[0];
+const ab = R.ab.diff;
+document.getElementById('tiles').replaceChildren(
+  h('div', { className: 'tile' }, h('div', { className: 'label', textContent: `Anchored on ${R.meta.n_labelled} labelled users` }),
+    h('div', { className: 'value', textContent: f2(main.balanced_accuracy) }), h('div', { className: 'note', textContent: `balanced accuracy over 4 states, calibrated (ECE ${main.ece_confused.toFixed(3)})` })),
+  h('div', { className: 'tile' }, h('div', { className: 'label', textContent: 'With no labels at all' }),
+    h('div', { className: 'value', textContent: f2(unsup.balanced_accuracy) }), h('div', { className: 'note', textContent: 'finds user types, not states' })),
+  h('div', { className: 'tile' }, h('div', { className: 'label', textContent: 'Redesign: rise in confusion on Options page' }),
+    h('div', { className: 'value', textContent: `+${(ab.inferred_conf_options.diff * 100).toFixed(0)} pts` }), h('div', { className: 'note', textContent: `inferred, vs +${(ab.true_conf_options.diff * 100).toFixed(0)} pts true: right direction, underestimated` })),
+);
+
+// ---------- explorer ----------
+const ex = { design: 'B', persona: 'novice', idx: 0, shown: null, timer: null };
+function segButtons(boxId, items, key) {
+  const box = document.getElementById(boxId);
+  for (const [v, label] of items) {
+    const b = h('button', { type: 'button', className: 'pill', textContent: label });
+    b.dataset.v = v;
+    b.addEventListener('click', () => { ex[key] = v; ex.idx = 0; stop(); renderExplorer(); });
+    box.append(b);
+  }
+}
+segButtons('design-seg', [['A', 'A · current'], ['B', 'B · redesign']], 'design');
+segButtons('persona-seg', Object.entries(PERSONA_LABEL), 'persona');
+document.getElementById('next').addEventListener('click', () => { ex.idx++; stop(); renderExplorer(); });
+document.getElementById('play').addEventListener('click', () => {
+  if (ex.timer) { stop(); renderExplorer(); return; }
+  const tr = currentTrace();
+  ex.shown = 0; renderExplorer();
+  document.getElementById('play').textContent = '■ Stop';
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  ex.timer = setInterval(() => {
+    ex.shown++;
+    if (ex.shown >= tr.states.length) { stop(); }
+    renderExplorer();
+  }, reduce ? 150 : 480);
+});
+function stop() { clearInterval(ex.timer); ex.timer = null; ex.shown = null; document.getElementById('play').textContent = '▶ Play'; }
+function currentTrace() {
+  // Most eventful sessions first, so the first user shown has something to see.
+  const busy = t => t.states.filter(s => s !== 0).length + (t.outcome === 'abandoned' ? 3 : 0);
+  const list = BANK.filter(t => t.design === ex.design && t.archetype === ex.persona).sort((a, b) => busy(b) - busy(a));
+  return list[ex.idx % list.length];
+}
+const sk = document.getElementById('state-key');
+for (const k of [0, 1, 2, 3]) sk.append(h('span', {}, Object.assign(h('i'), { style: `background:${STATE_VARS[k]}` }), STATE_NAMES[k]));
+
+function renderExplorer() {
+  for (const b of document.querySelectorAll('#design-seg button')) b.setAttribute('aria-pressed', b.dataset.v === ex.design);
+  for (const b of document.querySelectorAll('#persona-seg button')) b.setAttribute('aria-pressed', b.dataset.v === ex.persona);
+  const tr = currentTrace();
+  const n = tr.states.length;
+  const shown = ex.shown === null ? n : Math.min(n, ex.shown + 1);
+
+  // flow strip
+  const flow = document.getElementById('flow');
+  flow.replaceChildren();
+  const here = tr.pages[shown - 1];
+  PAGES.forEach((p, i) => {
+    const c = h('span', { className: 'pg' + (i === here ? ' here' : '') + (tr.design === 'B' && p === 'Options' ? ' changed' : ''), textContent: p });
+    flow.append(c);
+    if (i < PAGES.length - 1) flow.append(h('span', { className: 'arrow', textContent: '›' }));
+  });
+
+  const correct = tr.posterior.reduce((a, g, t) => a + (g.indexOf(Math.max(...g)) === tr.states[t] ? 1 : 0), 0);
+  const outcome = { completed: 'completed checkout', abandoned: 'abandoned', timeout: 'ran out of steps' }[tr.outcome];
+  document.getElementById('who').replaceChildren(
+    h('span', {}, h('b', { textContent: PERSONA_LABEL[tr.archetype] }), ` · ${outcome} after ${n} steps`),
+    h('span', { textContent: `fluency ${tr.traits.fluency} · carefulness ${tr.traits.care} · patience ${tr.traits.patience} · distractibility ${tr.traits.distract}` }),
+    h('span', { textContent: `model's most likely state matches the truth on ${correct}/${n} steps` }),
+  );
+
+  const container = document.getElementById('trace');
+  const narrow = container.clientWidth < 560;
+  const rows = { dwellTop: 8, dwellH: 110, glyph: 136, truth: 152, rowH: 22, belief: 186, beliefH: 46, rule: 244 };
+  const f = frame(container, 280, { t: 0, r: 8, b: 0, l: narrow ? 74 : 96 });
+  const cw = (f.x1 - f.x0) / Math.max(n, 12);
+  const gap = Math.min(2, cw * 0.15);
+  const ylog = d => rows.dwellTop + rows.dwellH - (Math.log10(Math.max(1, Math.min(300, d))) / Math.log10(300)) * rows.dwellH;
+
+  // row labels
+  const lab = (y, s) => txt(f.svg, f.x0 - 10, y, s, { 'text-anchor': 'end', class: 'lbl' });
+  lab(rows.dwellTop + rows.dwellH / 2, 'Pause');
+  lab(rows.glyph, 'Action');
+  lab(rows.truth + 15, 'True state');
+  lab(rows.belief + 28, narrow ? 'Model' : 'Model belief');
+  lab(rows.rule + 15, narrow ? 'Rule' : 'Rule-based');
+  for (const s of [1, 10, 100]) {
+    const y = ylog(s);
+    el('line', { x1: f.x0, x2: f.x1, y1: y, y2: y, stroke: 'var(--grid)', 'stroke-width': 1 }, f.svg);
+    txt(f.svg, f.x1, y - 3, `${s}s`, { 'text-anchor': 'end' });
+  }
+
+  for (let t = 0; t < n; t++) {
+    const x = f.x0 + t * cw, w = Math.max(1, cw - gap);
+    const g = el('g', { opacity: t < shown ? 1 : 0.12 }, f.svg);
+    const y = ylog(tr.dwell[t]);
+    const bw = Math.min(w, 24), bx = x + (w - bw) / 2;
+    el('path', { d: `M${bx},${rows.dwellTop + rows.dwellH}V${y + 3}q0,-3 3,-3h${bw - 6}q3,0 3,3V${rows.dwellTop + rows.dwellH}Z`, fill: 'var(--bar)' }, g);
+    txt(g, x + w / 2, rows.glyph, ACTION_GLYPH[tr.actions[t]], { 'text-anchor': 'middle', class: 'val' });
+    el('rect', { x, y: rows.truth, width: w, height: rows.rowH, rx: 3, fill: STATE_VARS[tr.states[t]] }, g);
+    let yy = rows.belief;
+    for (const k of STACK_ORDER) {
+      const hk = tr.posterior[t][k] * rows.beliefH;
+      if (hk > 0.4) el('rect', { x, y: yy, width: w, height: Math.max(0, hk - (hk > 3 ? 1 : 0)), fill: STATE_VARS[k] }, g);
+      yy += hk;
+    }
+    el('rect', { x, y: rows.rule, width: w, height: rows.rowH, rx: 3, fill: STATE_VARS[tr.rule[t]] }, g);
+    const hit = el('rect', { x, y: 0, width: cw, height: f.H, fill: 'transparent' }, f.svg);
+    hit.addEventListener('pointerenter', () => {
+      const p = tr.posterior[t];
+      showTip(f, x + cw, rows.dwellTop, `Step ${t + 1} · ${PAGES[tr.pages[t]]}: ${ACTION_NAME[tr.actions[t]]} after ${tr.dwell[t].toFixed(1)}s`, [
+        [STATE_VARS[tr.states[t]], 'Truth', STATE_NAMES[tr.states[t]]],
+        ...[0, 2, 1, 3].map(k => [STATE_VARS[k], pct(p[k]), STATE_NAMES[k].toLowerCase()]),
+        [STATE_VARS[tr.rule[t]], 'Rule', STATE_NAMES[tr.rule[t]]],
+      ]);
+    });
+    hit.addEventListener('pointerleave', () => hideTip(f));
+  }
+  f.svg.setAttribute('aria-label', `Trace of a ${tr.archetype} user on design ${tr.design}: ${n} steps, ${outcome}.`);
+}
+
+// ---------- model comparison ----------
+document.getElementById('rec-sub').textContent =
+  `${R.meta.n_test.toLocaleString()} held-out simulated users (${R.meta.test_steps.toLocaleString()} steps). Truly confused on ${pct(R.meta.true_state_share[2])} of steps, deliberating on ${pct(R.meta.true_state_share[1])}, interrupted on ${pct(R.meta.true_state_share[3])}.`;
+function renderModels() {
+  const c = document.getElementById('models');
+  const labels = M.map(m => m.model.trim().replace('... ', '… '));
+  const f = frame(c, M.length * 34 + 30, { t: 4, r: 40, b: 22, l: 0 });
+  const labW = Math.min(230, f.W * 0.5);
+  const xs = v => f.x0 + labW + v * (f.x1 - f.x0 - labW);
+  for (const v of [0, 0.25, 0.5, 0.75, 1]) {
+    el('line', { x1: xs(v), x2: xs(v), y1: f.y1, y2: f.y0, stroke: 'var(--grid)' }, f.svg);
+    txt(f.svg, xs(v), f.H - 6, v.toFixed(2), { 'text-anchor': 'middle' });
+  }
+  el('line', { x1: xs(0.25), x2: xs(0.25), y1: f.y1, y2: f.y0, stroke: 'var(--text-3)', 'stroke-dasharray': '3 3' }, f.svg);
+  M.forEach((m, i) => {
+    const y = f.y1 + i * 34 + 6, bh = 18;
+    const main = i === 2;
+    txt(f.svg, f.x0, y + 13, labels[i], { class: main ? 'val' : 'lbl' });
+    const w = xs(m.balanced_accuracy) - xs(0);
+    el('path', { d: `M${xs(0)},${y}h${w - 4}q4,0 4,4v${bh - 8}q0,4 -4,4h${-(w - 4)}Z`, fill: main ? 'var(--accent)' : 'var(--bar)' }, f.svg);
+    txt(f.svg, xs(m.balanced_accuracy) + 6, y + 13, f2(m.balanced_accuracy), { class: 'val' });
+  });
+}
+function renderCM() {
+  const c = document.getElementById('cm');
+  const cm = main.confusion_matrix;
+  const f = frame(c, 250, { t: 24, r: 4, b: 4, l: 92 });
+  const size = Math.min((f.x1 - f.x0) / 4, (f.y0 - f.y1) / 4);
+  const ramp = ['var(--seq-1)', 'var(--seq-2)', 'var(--seq-3)', 'var(--seq-4)'];
+  const short = ['Progr.', 'Delib.', 'Confused', 'Interr.'];
+  txt(f.svg, f.x0 + size * 2, 10, 'Inferred →', { 'text-anchor': 'middle' });
+  for (let j = 0; j < 4; j++) txt(f.svg, f.x0 + j * size + size / 2, f.y1 - 6, short[j], { 'text-anchor': 'middle', class: 'lbl' });
+  for (let i = 0; i < 4; i++) {
+    txt(f.svg, f.x0 - 8, f.y1 + i * size + size / 2 + 4, STATE_NAMES[i], { 'text-anchor': 'end', class: 'lbl' });
+    for (let j = 0; j < 4; j++) {
+      const v = cm[i][j], b = Math.min(3, Math.floor(v * 4));
+      const x = f.x0 + j * size, y = f.y1 + i * size;
+      el('rect', { x: x + 1, y: y + 1, width: size - 2, height: size - 2, rx: 4, fill: v < 0.02 ? 'var(--grid)' : ramp[b] }, f.svg);
+      const dark = getComputedStyle(document.documentElement).colorScheme === 'dark';
+      const light = dark ? b < 3 : b >= 2;
+      const t = txt(f.svg, x + size / 2, y + size / 2 + 4, pct(v), { 'text-anchor': 'middle' });
+      t.style.fill = v < 0.02 ? 'var(--text-3)' : (light ? '#fff' : '#0b0b0b'); t.style.fontWeight = 600; t.style.fontSize = '12px';
+    }
+  }
+  txt(f.svg, 4, f.y1 - 6, 'True ↓', { class: 'lbl' });
+}
+function renderModelsTable() {
+  const t = document.getElementById('models-table');
+  t.replaceChildren(h('thead', {}, h('tr', {}, ...['Model', 'Balanced accuracy', 'Confused: recall', 'Confused: precision', 'Calibration error, P(confused)'].map(s => h('th', { scope: 'col', textContent: s })))));
+  const tb = h('tbody');
+  for (const m of M) tb.append(h('tr', {}, h('th', { scope: 'row', style: 'font-weight:500', textContent: m.model }),
+    h('td', { textContent: f2(m.balanced_accuracy) }), h('td', { textContent: pct(m.recall[2]) }), h('td', { textContent: pct(m.precision[2]) }), h('td', { textContent: m.ece_confused.toFixed(3) })));
+  t.append(tb);
+  const cm = main.confusion_matrix;
+  document.getElementById('rec-body').replaceChildren(
+    h('h3', { textContent: 'What this shows' }),
+    h('ul', {},
+      h('li', {}, h('b', { textContent: 'The heuristic flags confusion often, but half its flags are wrong. ' }), `It catches ${pct(rule.recall[2])} of confused steps with ${pct(rule.precision[2])} precision, and its 0/1 output can't say how sure it is. The anchored model catches ${pct(main.recall[2])} with ${pct(main.precision[2])} precision, and its probabilities are calibrated: when it says 70% confused, the user is confused about 70% of the time.`),
+      h('li', {}, h('b', { textContent: 'Both signals are needed. ' }), `Dwell time alone drops balanced accuracy to ${f2(M[3].balanced_accuracy)}, and actions alone to ${f2(M[4].balanced_accuracy)}. A pause can't tell confusion from deliberation, and a click can't tell a short check from a long absence.`),
+      h('li', {}, h('b', { textContent: 'Sequence context helps a little. ' }), `Classifying each step on its own gives ${f2(M[5].balanced_accuracy)} vs ${f2(main.balanced_accuracy)}. Confusion tends to persist, so neighbouring steps carry evidence.`),
+      h('li', {}, h('b', { textContent: 'The hard boundary is deliberating vs confused. ' }), `${pct(cm[1][2])} of deliberating steps are read as confused, and ${pct(cm[2][1])} of confused steps as deliberating.`),
+    ));
+}
+
+// ---------- label curve ----------
+function renderCurve() {
+  const c = document.getElementById('curve'), C = R.label_curve;
+  const f = frame(c, 240, { t: 12, r: 16, b: 34, l: 40 });
+  const xs = i => f.x0 + (i / (C.length - 1)) * (f.x1 - f.x0);
+  const ys = v => f.y0 - ((v - 0.4) / 0.5) * (f.y0 - f.y1);
+  for (const v of [0.4, 0.5, 0.6, 0.7, 0.8, 0.9]) {
+    el('line', { x1: f.x0, x2: f.x1, y1: ys(v), y2: ys(v), stroke: 'var(--grid)' }, f.svg);
+    txt(f.svg, f.x0 - 6, ys(v) + 4, v.toFixed(1), { 'text-anchor': 'end' });
+  }
+  C.forEach((p, i) => txt(f.svg, xs(i), f.y0 + 16, p.n_labelled, { 'text-anchor': 'middle' }));
+  txt(f.svg, (f.x0 + f.x1) / 2, f.H - 2, 'Labelled users in the anchoring study', { 'text-anchor': 'middle' });
+  let band = '';
+  C.slice(1).forEach((p, k) => band += `${k ? 'L' : 'M'}${xs(k + 1)},${ys(p.ba_max)}`);
+  C.slice(1).reverse().forEach((p, k) => band += `L${xs(C.length - 1 - k)},${ys(p.ba_min)}`);
+  el('path', { d: band + 'Z', fill: 'var(--accent)', opacity: 0.12 }, f.svg);
+  el('path', { d: C.slice(1).map((p, k) => `${k ? 'L' : 'M'}${xs(k + 1)},${ys(p.balanced_accuracy)}`).join(''), fill: 'none', stroke: 'var(--accent)', 'stroke-width': 2, 'stroke-linejoin': 'round' }, f.svg);
+  // n = 0: range bar, since runs disagree
+  el('line', { x1: xs(0), x2: xs(0), y1: ys(C[0].ba_min), y2: ys(C[0].ba_max), stroke: 'var(--text-3)', 'stroke-width': 2, 'stroke-linecap': 'round' }, f.svg);
+  C.forEach((p, i) => el('circle', { cx: xs(i), cy: ys(p.balanced_accuracy), r: 4, fill: i ? 'var(--accent)' : 'var(--text-3)', stroke: 'var(--surface)', 'stroke-width': 2 }, f.svg));
+  txt(f.svg, xs(0) + 8, ys(C[0].ba_min) + 4, 'no labels: runs disagree', { class: 'lbl' });
+  C.forEach((p, i) => {
+    const hit = el('rect', { x: xs(i) - 18, y: f.y1, width: 36, height: f.y0 - f.y1, fill: 'transparent' }, f.svg);
+    hit.addEventListener('pointerenter', () => showTip(f, xs(i), ys(p.balanced_accuracy), `${p.n_labelled} labelled users`, [
+      [null, f2(p.balanced_accuracy), `balanced accuracy (range ${f2(p.ba_min)}–${f2(p.ba_max)})`],
+      [null, pct(p.confused_recall), 'of confused steps caught'],
+      [null, pct(p.confused_precision), 'of confused flags correct'],
+    ]));
+    hit.addEventListener('pointerleave', () => hideTip(f));
+  });
+  const c10 = C.find(p => p.n_labelled === 10), c200 = C.find(p => p.n_labelled === 200);
+  document.getElementById('lab-body').replaceChildren(
+    h('p', {}, h('b', { textContent: 'A handful of labels does most of the work. ' }), `With no labels, five runs of the same model range from ${f2(C[0].ba_min)} to ${f2(C[0].ba_max)}, and without ground truth there's no way to tell which run is right. Ten labelled users give ${f2(c10.balanced_accuracy)}, and replicate studies barely disagree.`),
+    h('p', {}, h('b', { textContent: 'More labels don\'t raise the ceiling. ' }), `200 labelled users give ${f2(c200.balanced_accuracy)}. The limit isn't data, it's that some states produce overlapping behaviour. The way to go beyond it is a new signal (where the pointer moves, what's scrolled into view, a probe question), not more of the same.`),
+  );
+}
+
+// ---------- user types ----------
+function renderTypes() {
+  const U = R.unsupervised_split, c = document.getElementById('types');
+  const ramp = ['var(--seq-1)', 'var(--seq-2)', 'var(--seq-3)', 'var(--seq-4)'];
+  const names = ['Fastest', 'Slower', 'Slower still', 'Slowest'];
+  const key = document.getElementById('types-key'); key.replaceChildren();
+  names.forEach((nm, k) => key.append(h('span', {}, Object.assign(h('i'), { style: `background:${ramp[k]}` }), `${nm} (named "${U.fitted_state_named_as[k]}")`)));
+  const ars = Object.keys(U.by_archetype);
+  const f = frame(c, ars.length * 36 + 26, { t: 4, r: 10, b: 22, l: 96 });
+  const xs = v => f.x0 + v * (f.x1 - f.x0);
+  for (const v of [0, 0.25, 0.5, 0.75, 1]) { el('line', { x1: xs(v), x2: xs(v), y1: f.y1, y2: f.y0, stroke: 'var(--grid)' }, f.svg); txt(f.svg, xs(v), f.H - 6, pct(v), { 'text-anchor': 'middle' }); }
+  ars.forEach((ar, i) => {
+    const y = f.y1 + i * 36 + 6;
+    txt(f.svg, f.x0 - 8, y + 15, PERSONA_LABEL[ar], { 'text-anchor': 'end', class: 'lbl' });
+    let acc = 0;
+    const tot = U.by_archetype[ar].reduce((a, b) => a + b, 0);
+    U.by_archetype[ar].forEach((v, k) => {
+      const w = (v / tot) * (f.x1 - f.x0);
+      if (w > 0.5) {
+        const r = el('rect', { x: xs(0) + acc, y, width: Math.max(0, w - 2), height: 22, rx: 3, fill: ramp[k] }, f.svg);
+        r.addEventListener('pointerenter', () => showTip(f, xs(0) + acc + w / 2, y, `${PERSONA_LABEL[ar]}, truly progressing`, [[ramp[k], pct(v / tot), `put in the ${names[k].toLowerCase()} state ("${U.fitted_state_named_as[k]}")`]]));
+        r.addEventListener('pointerleave', () => hideTip(f));
+      }
+      acc += w;
+    });
+  });
+  const nov = U.by_archetype.novice, exp = U.by_archetype.expert;
+  const tn = nov.reduce((a, b) => a + b, 0), te = exp.reduce((a, b) => a + b, 0);
+  document.getElementById('types-body').replaceChildren(
+    h('p', {}, `Fitted to unlabelled traffic alone, the model finds real structure, but not the structure we want. The biggest source of variation in dwell time is who the user is. So it spends a state on "fast users" and another on "slow users": ${pct(exp[0] / te)} of experts' progressing steps fall in the fastest state, while ${pct(nov[1] / tn)} of novices' progressing steps fall in the slower one, which its profile names "deliberating". A novice doing fine looks like an expert thinking hard.`),
+    h('p', {}, 'This is the practical case for modelling individual differences explicitly. Without a way to separate a person\'s baseline from their state at the moment, the inferred states partly measure the person rather than the experience.'),
+  );
+}
+
+// ---------- same behaviour ----------
+function renderSame() {
+  const S = R.same_behaviour;
+  document.getElementById('same-body').replaceChildren(
+    h('p', { className: 'sub', textContent: `Across held-out users there are ${S.n_steps} steps with the same observable behaviour: the user went back after pausing 8–14 seconds. Some were confused and some were deliberating, comparing two options on purpose.` }),
+    h('div', { className: 'grid2' },
+      h('div', { className: 'tile' }, h('div', { className: 'label', textContent: `Truly confused (${S.confused.n} steps)` }),
+        h('div', { className: 'value', textContent: pct(S.confused.mean_p_confused) }), h('div', { className: 'note', textContent: `average model belief "confused"; called correctly ${pct(S.confused.correct)} of the time` })),
+      h('div', { className: 'tile' }, h('div', { className: 'label', textContent: `Truly deliberating (${S.deliberating.n} steps)` }),
+        h('div', { className: 'value', textContent: pct(S.deliberating.mean_p_confused) }), h('div', { className: 'note', textContent: `average model belief "confused"; called correctly ${pct(S.deliberating.correct)} of the time` }))),
+    h('div', { className: 'callout' },
+      h('p', { textContent: `The model mostly gets these right when the user really is confused, because confusion usually comes in runs and the surrounding steps give it away. When the same behaviour comes from deliberation, the model is close to a coin flip. That's the right answer: it's uncertain, and it says so.` }),
+      h('p', { textContent: 'A dashboard that counts "went back after a long pause" as confusion would, on this population, overcount confusion and miss that some of it is careful comparison, which a redesign aimed at "reducing confusion" could make harder.' })),
+  );
+}
+
+// ---------- A/B ----------
+function renderAB() {
+  const A = R.ab.A, B = R.ab.B, D = R.ab.diff;
+  document.getElementById('ab-sub').textContent = `${(2000).toLocaleString()} simulated users per design. Design B hides "Add to cart" on the Options page inside a dropdown. The model was trained on design A traffic only, as it would be before launch, and is then applied to both.`;
+  const c = document.getElementById('ab');
+  const f = frame(c, 260, { t: 12, r: 16, b: 34, l: 42 });
+  const xs = i => f.x0 + (i / (PAGES.length - 1)) * (f.x1 - f.x0);
+  const ymax = 0.5, ys = v => f.y0 - (v / ymax) * (f.y0 - f.y1);
+  for (const v of [0, 0.1, 0.2, 0.3, 0.4, 0.5]) { el('line', { x1: f.x0, x2: f.x1, y1: ys(v), y2: ys(v), stroke: 'var(--grid)' }, f.svg); txt(f.svg, f.x0 - 6, ys(v) + 4, pct(v), { 'text-anchor': 'end' }); }
+  PAGES.forEach((p, i) => txt(f.svg, xs(i), f.y0 + 16, p, { 'text-anchor': 'middle' }));
+  txt(f.svg, (f.x0 + f.x1) / 2, f.H - 2, 'Share of steps confused, by page', { 'text-anchor': 'middle' });
+  const series = [[A.true_conf_by_page, 'var(--ink-line)', null], [A.inferred_conf_by_page, 'var(--ink-line)', '5 4'], [B.true_conf_by_page, 'var(--accent)', null], [B.inferred_conf_by_page, 'var(--accent)', '5 4']];
+  for (const [vals, col, dash] of series) {
+    const d = vals.map((v, i) => `${i ? 'L' : 'M'}${xs(i)},${ys(v)}`).join('');
+    el('path', { d, fill: 'none', stroke: col, 'stroke-width': 2, 'stroke-dasharray': dash || 'none', 'stroke-linejoin': 'round' }, f.svg);
+  }
+  const opt = PAGES.indexOf('Options');
+  el('circle', { cx: xs(opt), cy: ys(B.true_conf_by_page[opt]), r: 4, fill: 'var(--accent)', stroke: 'var(--surface)', 'stroke-width': 2 }, f.svg);
+  txt(f.svg, xs(opt) + 8, ys(B.true_conf_by_page[opt]) + 4, `B true ${pct(B.true_conf_by_page[opt])}`, { class: 'val' });
+  txt(f.svg, xs(opt) + 8, ys(B.inferred_conf_by_page[opt]) + 4, `B inferred ${pct(B.inferred_conf_by_page[opt])}`, { class: 'lbl' });
+  const line = el('line', { y1: f.y1, y2: f.y0, stroke: 'var(--text-3)', opacity: 0 }, f.svg);
+  PAGES.forEach((p, i) => {
+    const hit = el('rect', { x: xs(i) - (f.x1 - f.x0) / 12, y: f.y1, width: (f.x1 - f.x0) / 6, height: f.y0 - f.y1, fill: 'transparent' }, f.svg);
+    hit.addEventListener('pointerenter', () => {
+      line.setAttribute('x1', xs(i)); line.setAttribute('x2', xs(i)); line.setAttribute('opacity', 1);
+      showTip(f, xs(i), f.y1, p, [['var(--ink-line)', pct(A.true_conf_by_page[i], 1), 'A true'], ['var(--ink-line)', pct(A.inferred_conf_by_page[i], 1), 'A inferred'],
+        ['var(--accent)', pct(B.true_conf_by_page[i], 1), 'B true'], ['var(--accent)', pct(B.inferred_conf_by_page[i], 1), 'B inferred']]);
+    });
+    hit.addEventListener('pointerleave', () => { line.setAttribute('opacity', 0); hideTip(f); });
+  });
+
+  const t = document.getElementById('ab-table');
+  const ci = v => `${(v.diff * 100).toFixed(1)} pts [${(v.ci95[0] * 100).toFixed(1)}, ${(v.ci95[1] * 100).toFixed(1)}]`;
+  t.replaceChildren(h('thead', {}, h('tr', {}, ...['Measure', 'Design A', 'Design B', 'Difference [95% CI]'].map(s => h('th', { scope: 'col', textContent: s })))));
+  const tb = h('tbody');
+  for (const [name, v] of [['Confusion on Options page (true)', D.true_conf_options], ['Confusion on Options page (inferred)', D.inferred_conf_options], ['Abandonment', D.abandonment]])
+    tb.append(h('tr', {}, h('th', { scope: 'row', style: 'font-weight:500', textContent: name }), h('td', { textContent: pct(v.A, 1) }), h('td', { textContent: pct(v.B, 1) }), h('td', { textContent: ci(v) })));
+  for (const ar of Object.keys(A.by_archetype))
+    tb.append(h('tr', {}, h('th', { scope: 'row', style: 'font-weight:500', textContent: `Abandonment · ${PERSONA_LABEL[ar]}` }), h('td', { textContent: pct(A.by_archetype[ar].abandon, 1) }), h('td', { textContent: pct(B.by_archetype[ar].abandon, 1) }), h('td', { textContent: `${((B.by_archetype[ar].abandon - A.by_archetype[ar].abandon) * 100).toFixed(1)} pts` })));
+  t.append(tb);
+  const nov = [A.by_archetype.novice.abandon, B.by_archetype.novice.abandon];
+  document.getElementById('ab-body').replaceChildren(
+    h('ul', {},
+      h('li', {}, h('b', { textContent: 'The model finds the problem page. ' }), `Inferred confusion rises most on Options, by ${(D.inferred_conf_options.diff * 100).toFixed(0)} points (95% CI ${(D.inferred_conf_options.ci95[0] * 100).toFixed(0)}–${(D.inferred_conf_options.ci95[1] * 100).toFixed(0)}, resampling users), with smaller rises on Product and Cart, where confused users go back to or land next. The model tracks those knock-on effects too. Abandonment rises by ${(D.abandonment.diff * 100).toFixed(0)} points.`),
+      h('li', {}, h('b', { textContent: 'But it underestimates the size. ' }), `The true rise is ${(D.true_conf_options.diff * 100).toFixed(0)} points. Of the truly confused steps on the redesigned page, the model reads ${pct(R.ab.B_options_confused_read_as[1])} as deliberating and ${pct(R.ab.B_options_confused_read_as[0])} as progressing. Trained on the old design, it has never seen this much confusion on one page. Models of behaviour inherit the interface they were trained on, so a redesign can bias the measurement of the redesign itself.`),
+      h('li', {}, h('b', { textContent: 'The cost falls unevenly. ' }), `Novices' abandonment goes from ${pct(nov[0])} to ${pct(nov[1])}, the largest rise of any persona. An average across all users would hide who the redesign hurts.`),
+    ));
+}
+
+// ---------- personas ----------
+function renderPersonas() {
+  const P = R.personas, t = document.getElementById('pers-table');
+  t.replaceChildren(h('thead', {}, h('tr', {}, ...['Persona', 'Steps confused', 'Balanced accuracy', 'Confused: recall', 'Confused: precision'].map(s => h('th', { scope: 'col', textContent: s })))));
+  const tb = h('tbody');
+  for (const [ar, v] of Object.entries(P)) tb.append(h('tr', {}, h('th', { scope: 'row', style: 'font-weight:500', textContent: PERSONA_LABEL[ar] }),
+    h('td', { textContent: pct(v.share_confused, 1) }), h('td', { textContent: f2(v.balanced_accuracy) }), h('td', { textContent: pct(v.recall[2]) }), h('td', { textContent: pct(v.precision[2]) })));
+  t.append(tb);
+  const worst = Object.entries(P).sort((a, b) => a[1].recall[2] - b[1].recall[2]);
+  document.getElementById('pers-body').replaceChildren(
+    h('p', {}, `Confusion is hardest to detect for ${PERSONA_LABEL[worst[0][0]].toLowerCase()} and ${PERSONA_LABEL[worst[1][0]].toLowerCase()} users (recall ${pct(worst[0][1].recall[2])} and ${pct(worst[1][1].recall[2])}), and easiest for novices (${pct(P.novice.recall[2])}). In this simulation, experts' confusion is brief and their pauses short, so it resembles normal progress, and distractible users' confusion is mixed in with long absences. A single accuracy figure would hide that the model is weakest for exactly the users whose confusion is rarest.`),
+  );
+}
+
+function renderAll() { renderExplorer(); renderModels(); renderCM(); renderModelsTable(); renderCurve(); renderTypes(); renderSame(); renderAB(); renderPersonas(); }
+renderAll();
+let lastW = document.body.clientWidth;
+new ResizeObserver(() => { const w = document.body.clientWidth; if (Math.abs(w - lastW) > 4) { lastW = w; renderAll(); } }).observe(document.body);
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderCM);
+</script>
+</body>
+</html>
